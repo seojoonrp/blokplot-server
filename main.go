@@ -1,37 +1,72 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// 메시지 구조체
-type Message struct {
-	// Text라는 이름의 문자열 변수를 하나 가진다.
-	// 태그: json으로 바꿀 때, Text라는 변수명을 message라는 이름으로 바꿔주세요
-	Text string `json:"message"`
+var mongoClient *mongo.Client
+
+type User struct {
+	Username string `bson:"username" json:"username"`
+	Profile interface{} `bson:"profile" json:"profile"`
+	Stats interface{} `bson:"stats" json:"stats"`
+	Friends []string `bson:"friends" json:"friends"`
 }
 
 func main() {
-	// /button1 주소에 누가 접속했을 때, func 안쪽 코드를 실행함
-	// 받는 요청 정보: r / 보낼 응답 정보: w
-	http.HandleFunc("/button1", func(w http.ResponseWriter, r *http.Request) {
-		msg := Message{Text: "Button 1 Clicked"}
-		// 클라이언트한테 이거 json이라고 알려줌
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(msg)
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+	defer cancel()
 
-	http.HandleFunc("/button2", func(w http.ResponseWriter, r *http.Request) {
-		msg := Message{Text: "Button 2 Clicked"}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(msg)
-	})
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		log.Fatal("Failed to connect to MongoDB:", err)
+	}
+	defer client.Disconnect(ctx)
 
-	log.Println("Server Started!")
+	mongoClient = client
+	log.Println("Successfully connected to MongoDB.")
 
-	// ListenAndServe: 8080 포트로 들어오는 모든 요청을 기다리며 처리함
-	// 그러면서 치명적인 문제가 생기면 터미널에 출력하고 서버 종료
+	http.HandleFunc("/api/users/", getUserHandler)
+
+	log.Println("Server started!")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Path[len("/api/users/"):]
+
+	if username == "" {
+		http.Error(w, "Username required", http.StatusBadRequest)
+		return
+	}
+
+	collection := mongoClient.Database("blokplot").Collection("users")
+
+	var result User
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+	defer cancel()
+
+	filter := bson.M{"username": username}
+	err := collection.FindOne(ctx, filter).Decode(&result)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		log.Println("Error while getting DB:", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
