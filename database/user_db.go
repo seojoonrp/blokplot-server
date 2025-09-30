@@ -19,7 +19,6 @@ func NewUserStore(collection *mongo.Collection) *UserStore {
 	return &UserStore{Collection: collection}
 }
 
-// func (어쩌고) 함수이름 -> 어쩌고의 메서드
 func (store *UserStore) GetUserByUsername(ctx context.Context, username string) (models.User, error) {
 	var user models.User
 

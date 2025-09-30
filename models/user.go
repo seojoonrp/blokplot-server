@@ -9,7 +9,7 @@ type Profile struct {
 
 type Stats struct {
 	Wins int `bson:"wins" json:"wins"`
-	LiarWins int `bson:"liar-wins" json:"liar-wins"`
+	LiarWins int `bson:"liar-wins" json:"liarWins"`
 	Trophies int `bson:"trophies" json:"trophies"`
 	Coins int `bson:"coins" json:"coins"`
 }
