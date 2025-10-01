@@ -9,9 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"github.com/seojoonrp/blokplot-server/database"
 	"github.com/seojoonrp/blokplot-server/models"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type UserHandler struct {
@@ -76,4 +77,8 @@ func (handler *UserHandler) LoginOrRegisterHandler(w http.ResponseWriter, r *htt
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(curUser)
+}
+
+func (handler *UserHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler.LoginOrRegisterHandler(w, r)
 }
