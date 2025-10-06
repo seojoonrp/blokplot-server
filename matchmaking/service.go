@@ -3,6 +3,7 @@
 package matchmaking
 
 import (
+	"encoding/json"
 	"log"
 	"time"
 
@@ -10,6 +11,22 @@ import (
 
 	"github.com/seojoonrp/blokplot-server/game"
 )
+
+const maxPlayerCount = 2;
+
+type GameStartMessage struct {
+	Type string `json:"type"`
+}
+
+type RoomStatusMessage struct {
+	Type string `json:"type"`
+	Data RoomStatusData `json:"data"`
+}
+
+type RoomStatusData struct {
+	CurPlayerCount int `json:"curPlayerCount"`
+	MaxPlayerCount int `json:"maxPlayerCount"`
+}
 
 type Service struct {
 	queue chan *websocket.Conn
@@ -33,27 +50,42 @@ func (s *Service) Run() {
 	for {
 		player := <- s.queue
 		waitingPlayers = append(waitingPlayers, player)
+		broadcastRoomStatus(waitingPlayers)
 
-		if len(waitingPlayers) >= 2 {
-			player1 := waitingPlayers[0]
-			player2 := waitingPlayers[1]
+		if len(waitingPlayers) >= maxPlayerCount {
+			matchedPlayers := waitingPlayers[:maxPlayerCount];
+			waitingPlayers = waitingPlayers[maxPlayerCount:];
+			log.Printf("%d players matched. Creating new room...", maxPlayerCount)
 
-			if !isConnectionAlive(player1) {
-				log.Println("Player 1 disconnected while waiting. Removing from queue...")
-				waitingPlayers = waitingPlayers[1:]
-				continue
-			}
-			if !isConnectionAlive(player2) {
-				log.Println("Player 2 disconnected while waiting. Removing from queue...")
-				waitingPlayers = append(waitingPlayers[:1], waitingPlayers[2:]...)
-				continue
-			}
-
-			waitingPlayers = waitingPlayers[2:]
-			log.Println("2 players matched. Creating game room...")
-
-			room := game.NewRoom(player1, player2)
+			room := game.NewRoom(matchedPlayers...)
 			go room.Run()
+			
+			msg := GameStartMessage{ Type: "gameStart" }
+			jsonMsg, _ := json.Marshal(msg)
+			for _, player := range matchedPlayers {
+				player.WriteMessage(websocket.TextMessage, jsonMsg)
+			}
+
+			if (len(waitingPlayers) > 0) {
+				broadcastRoomStatus(waitingPlayers)
+			}
+		}
+	}
+}
+
+func broadcastRoomStatus(players []*websocket.Conn) {
+	msg := RoomStatusMessage{
+		Type: "roomStatus",
+		Data: RoomStatusData{
+			CurPlayerCount: len(players),
+			MaxPlayerCount: maxPlayerCount,
+		},
+	}
+	jsonMsg, _ := json.Marshal(msg)
+
+	for _, player := range players {
+		if isConnectionAlive(player) {
+			player.WriteMessage(websocket.TextMessage, jsonMsg)
 		}
 	}
 }

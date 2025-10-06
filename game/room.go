@@ -15,38 +15,29 @@ type Message struct {
 }
 
 type Room struct {
-	player1 *websocket.Conn
-	player2 *websocket.Conn
+	players []*websocket.Conn
 	broadcast chan Message
 }
 
-func NewRoom(p1, p2 *websocket.Conn) *Room {
-	log.Println("Creating new game room.")
-
+func NewRoom(players ...*websocket.Conn) *Room {
 	return &Room{
-		player1: p1,
-		player2: p2,
+		players: players,
 		broadcast: make(chan Message),
 	}
 }
 
 func (r *Room) Run() {
-	go r.readMessages(r.player1)
-	go r.readMessages(r.player2)
-
-	r.player1.WriteMessage(websocket.TextMessage, []byte("Game matched! Starting game..."))
-	r.player2.WriteMessage(websocket.TextMessage, []byte("Game matched! Starting game..."))
+	for _, player := range r.players {
+		player.WriteMessage(websocket.TextMessage, []byte("Game matched! Starting game..."))
+		go r.readMessages(player)
+	}
 
 	for msg := range r.broadcast {
-		if msg.Sender != r.player1 {
-			if err := r.player1.WriteMessage(websocket.TextMessage, msg.Content); err != nil {
-				r.player2.WriteMessage(websocket.TextMessage, []byte("Opponent has disconnected."))
-			}
-		}
-
-		if msg.Sender != r.player2 {
-			if err := r.player2.WriteMessage(websocket.TextMessage, msg.Content); err != nil {
-				r.player1.WriteMessage(websocket.TextMessage, []byte("Opponent has disconnected."))
+		for _, player := range r.players {
+			if msg.Sender != player {
+				if err := player.WriteMessage(websocket.TextMessage, msg.Content); err != nil {
+					player.WriteMessage(websocket.TextMessage, []byte("Player has disconnected."))
+				}
 			}
 		}
 	}
