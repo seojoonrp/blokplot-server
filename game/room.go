@@ -3,6 +3,7 @@
 package game
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -54,7 +55,10 @@ func (r *Room) Run() {
 }
 
 func (r *Room) readMessages(conn *websocket.Conn) {
-	defer conn.Close()
+	defer func() {
+		close(r.broadcast)
+		conn.Close()
+	}()
 
 	for {
 		_, content, err := conn.ReadMessage()
@@ -63,6 +67,21 @@ func (r *Room) readMessages(conn *websocket.Conn) {
 			log.Printf("Error while reading message: %v", err)
 			close(r.broadcast)
 			break
+		}
+
+		var baseMessage BaseMessage
+		if err := json.Unmarshal(content, &baseMessage); err != nil {
+			log.Printf("Invalid JSON message received: %v", err)
+			continue
+		}
+
+		switch baseMessage.Type {
+		case "chat":
+			log.Println("Chat message received.")
+		case "placeBlock":
+			log.Println("Block placement data received.")
+		default:
+			log.Printf("Unknown type of data received: %s\n", baseMessage.Type)
 		}
 
 		r.broadcast <- Message{

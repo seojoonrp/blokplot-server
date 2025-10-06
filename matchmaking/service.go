@@ -1,3 +1,5 @@
+// matchmaking/service.go
+
 package matchmaking
 
 import (
@@ -41,8 +43,8 @@ func (s *Service) Run() {
 				waitingPlayers = waitingPlayers[1:]
 				continue
 			}
-			if !isConnectionAlive(player1) {
-				log.Println("Player 1 disconnected while waiting. Removing from queue...")
+			if !isConnectionAlive(player2) {
+				log.Println("Player 2 disconnected while waiting. Removing from queue...")
 				waitingPlayers = append(waitingPlayers[:1], waitingPlayers[2:]...)
 				continue
 			}
