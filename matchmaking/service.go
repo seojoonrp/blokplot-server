@@ -46,7 +46,7 @@ func (s *Service) Run() {
 	for {
 		player := <- s.queue
 		waitingPlayers = append(waitingPlayers, player)
-		broadcastRoomStatus(waitingPlayers)
+		waitingPlayers = broadcastAndClean(waitingPlayers)
 
 		if len(waitingPlayers) >= maxPlayerCount {
 			matchedPlayers := waitingPlayers[:maxPlayerCount];
@@ -57,27 +57,37 @@ func (s *Service) Run() {
 			go room.Run()
 
 			if (len(waitingPlayers) > 0) {
-				broadcastRoomStatus(waitingPlayers)
+				waitingPlayers = broadcastAndClean(waitingPlayers)
 			}
 		}
 	}
 }
 
-func broadcastRoomStatus(players []*websocket.Conn) {
+func broadcastAndClean(players []*websocket.Conn) []*websocket.Conn {
+	alivePlayers := make([]*websocket.Conn, 0, len(players))
+
+	for _, player := range players {
+		if isConnectionAlive(player) {
+			alivePlayers = append(alivePlayers, player)
+		} else {
+			log.Println("Some player has disconnected. Removing from queue.")
+		}
+	}
+
 	msg := RoomStatusMessage{
 		Type: "roomStatus",
 		Data: RoomStatusData{
-			CurPlayerCount: len(players),
+			CurPlayerCount: len(alivePlayers),
 			MaxPlayerCount: maxPlayerCount,
 		},
 	}
 	jsonMsg, _ := json.Marshal(msg)
 
-	for _, player := range players {
-		if isConnectionAlive(player) {
-			player.WriteMessage(websocket.TextMessage, jsonMsg)
-		}
+	for _, player := range alivePlayers {
+		player.WriteMessage(websocket.TextMessage, jsonMsg)
 	}
+
+	return alivePlayers
 }
 
 func isConnectionAlive(conn *websocket.Conn) bool {
