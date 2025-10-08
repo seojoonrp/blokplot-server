@@ -14,10 +14,6 @@ import (
 
 const maxPlayerCount = 2;
 
-type GameStartMessage struct {
-	Type string `json:"type"`
-}
-
 type RoomStatusMessage struct {
 	Type string `json:"type"`
 	Data RoomStatusData `json:"data"`
@@ -59,12 +55,6 @@ func (s *Service) Run() {
 
 			room := game.NewRoom(matchedPlayers...)
 			go room.Run()
-			
-			msg := GameStartMessage{ Type: "gameStart" }
-			jsonMsg, _ := json.Marshal(msg)
-			for _, player := range matchedPlayers {
-				player.WriteMessage(websocket.TextMessage, jsonMsg)
-			}
 
 			if (len(waitingPlayers) > 0) {
 				broadcastRoomStatus(waitingPlayers)

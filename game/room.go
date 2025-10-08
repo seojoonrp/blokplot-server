@@ -5,39 +5,93 @@ package game
 import (
 	"encoding/json"
 	"log"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
 type Message struct {
-	Sender *websocket.Conn
+	Sender *Player
 	Content []byte
 }
 
 type Room struct {
-	players []*websocket.Conn
+	players map[*websocket.Conn]*Player
 	broadcast chan Message
+	mu sync.Mutex
 }
 
-func NewRoom(players ...*websocket.Conn) *Room {
+func NewRoom(conns ...*websocket.Conn) *Room {
+	players := make(map[*websocket.Conn]*Player)
+
+	for i, conn := range conns {
+		players[conn] = &Player{
+			Conn: conn,
+			GameIndex: i,
+		}
+	}
+
 	return &Room{
 		players: players,
 		broadcast: make(chan Message),
 	}
 }
 
+func (r *Room) removePlayer(player *Player) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.players[player.Conn]; ok {
+		delete(r.players, player.Conn)
+		log.Printf("Player %d removed from game room.", player.GameIndex)
+	}
+
+	if len(r.players) == 0 {
+		close(r.broadcast)
+	}
+}
+
 func (r *Room) Run() {
 	for _, player := range r.players {
-		player.WriteMessage(websocket.TextMessage, []byte("Game matched! Starting game..."))
+		gameInitData := GameInitMessage{ PlayerIndex: player.GameIndex }
+		dataBytes, _ := json.Marshal(gameInitData)
+
+		initMessage := ServerMessage{
+			Type: "gameInit",
+			SenderIndex: -1,
+			Data: dataBytes,
+		}
+		finalJson, _ := json.Marshal(initMessage)
+
+		player.Conn.WriteMessage(websocket.TextMessage, finalJson)
+
 		go r.readMessages(player)
 	}
 
 	for msg := range r.broadcast {
+		var clientMessage ClientMessage
+		if err := json.Unmarshal(msg.Content, &clientMessage); err != nil {
+			log.Printf("Failed to unmarshal client message: %v", err)
+			continue
+		}
+
+		serverMessage := ServerMessage{
+			Type: clientMessage.Type,
+			SenderIndex: msg.Sender.GameIndex,
+			Data: clientMessage.Data,
+		}
+
+		HandleServerMessage(&serverMessage)
+		
+		newContent, err := json.Marshal(serverMessage)
+		if err != nil {
+			log.Printf("Failed to marshal server message: %v", err)
+			continue
+		}
+
 		for _, player := range r.players {
 			if msg.Sender != player {
-				if err := player.WriteMessage(websocket.TextMessage, msg.Content); err != nil {
-					player.WriteMessage(websocket.TextMessage, []byte("Player has disconnected."))
-				}
+				player.Conn.WriteMessage(websocket.TextMessage, newContent)
 			}
 		}
 	}
@@ -45,39 +99,34 @@ func (r *Room) Run() {
 	log.Println("Game room closed.")
 }
 
-func (r *Room) readMessages(conn *websocket.Conn) {
+func (r *Room) readMessages(player *Player) {
 	defer func() {
-		close(r.broadcast)
-		conn.Close()
+		r.removePlayer(player)
+		player.Conn.Close()
 	}()
 
 	for {
-		_, content, err := conn.ReadMessage()
+		_, content, err := player.Conn.ReadMessage()
 
 		if err != nil {
-			log.Printf("Error while reading message: %v", err)
-			close(r.broadcast)
+			log.Printf("Error while reading message from player %d: %v", player.GameIndex, err)
 			break
 		}
 
-		var baseMessage BaseMessage
-		if err := json.Unmarshal(content, &baseMessage); err != nil {
-			log.Printf("Invalid JSON message received: %v", err)
-			continue
-		}
-
-		switch baseMessage.Type {
-		case "chat":
-			log.Println("Chat message received.")
-		case "placeBlock":
-			log.Println("Block placement data received.")
-		default:
-			log.Printf("Unknown type of data received: %s\n", baseMessage.Type)
-		}
-
 		r.broadcast <- Message{
-			Sender: conn,
+			Sender: player,
 			Content: content,
 		}
+	}
+}
+
+func HandleServerMessage(serverMessage *ServerMessage) {
+	switch serverMessage.Type {
+	case "chat":
+		log.Printf("Chat message received from Player #%d", serverMessage.SenderIndex)
+	case "blockPlace":
+		log.Printf("Block place message received from Player #%d", serverMessage.SenderIndex)
+	default:
+		log.Printf("Unknown type \"%s\"of message received from Player #%d", serverMessage.Type, serverMessage.SenderIndex)
 	}
 }
